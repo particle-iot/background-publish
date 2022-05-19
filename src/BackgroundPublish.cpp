@@ -17,6 +17,7 @@
 #include "BackgroundPublish.h"
 
 constexpr int NUM_OF_QUEUES = 2;
+constexpr system_tick_t PROCESS_QUEUE_INTERVAL_MS = 1000;
 const int NUM_ENTRIES = 8;
 
 BackgroundPublish::BackgroundPublish() {
@@ -40,6 +41,8 @@ void BackgroundPublish::init() {
 }
 
 void BackgroundPublish::thread_f() {
+    static system_tick_t process_time_ms = millis();
+
     do {
         //Set to always start with the highest priority queue, and after each
         //publish to break out of the loop. This gaurantees that the highest
@@ -47,13 +50,18 @@ void BackgroundPublish::thread_f() {
         //queue is empty it just iterates to the next priority 
         //queue and so forth
         for(auto queue : _queues) {
-            std::lock_guard<RecursiveMutex> lock(_mutex);
+            _mutex.lock();
             if(!queue->empty()) {
-                const publish_event_t event = queue->front(); //return an element
-                queue->pop(); //remove the element
-                process_publish(event);
-                break;
+                if(millis() - process_time_ms >= PROCESS_QUEUE_INTERVAL_MS) {
+                    process_time_ms = millis();
+                    const publish_event_t event = queue->front(); //return an element
+                    queue->pop(); //remove the element
+                    process_publish(event);
+                    _mutex.unlock();
+                    break;
+                }
             }
+            _mutex.unlock();
         }
     } while(keep_running());
 }
@@ -78,6 +86,7 @@ bool BackgroundPublish::publish(const char *name,
     if(level < (NUM_OF_QUEUES)) {
         if(_queues.at(level)->size() < NUM_ENTRIES) {
             _queues.at(level)->push(event_details);
+            Log.info("Publish request accepted");
         }
         else {
             Log.info("Exceeds number of entries allowed");

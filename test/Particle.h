@@ -298,6 +298,8 @@ public:
 extern SystemClass System;
 extern Logger Log;
 
+inline system_tick_t millis(void) { return System.millis(); }
+
 static inline bool HAL_IsISR() 
 {
 	return false;

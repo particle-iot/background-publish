@@ -82,7 +82,16 @@ public:
                 int level = 0,
                 publish_completed_cb_t cb = nullptr,
                 const void* context = nullptr);
-
+    
+    template <typename T>
+    bool publish(const char* name,
+                const char* data = nullptr,
+                PublishFlags flags = PRIVATE,
+                int level = 0,
+                void (T::*cb)(publishStatus status, const char *, const char *, const void *) = nullptr,
+                T* instance = nullptr,
+                const void* context = nullptr);
+    
     /**
      * @brief Thread for the background publish
      *
@@ -146,3 +155,40 @@ private:
  */
 bool keep_running();
 
+/**
+ * @brief Wrapper class for callbacks that are for non-static functions
+ * Request a publish message to the cloud
+ *
+ * @details Puts the event details for the request in the corresponding
+ * queue depending on what priority level the message is set to. Number 
+ * of priority levels is determined by the NUM_OF_QUEUES macros. The lower
+ * the priority level the higher the priority of the message. The level is
+ * used to access the _queues vector as an index
+ *
+ * @param[in] name of the event requested
+ * @param[in] data pointer to data to send
+ * @param[in] flags PublishFlags type for the request
+ * @param[in] level priority level of message. Lowest is highest priority.
+ *  Zero indexed
+ * @param[in] cb callback on publish success or failure
+ * @param[in] this invisible this pointer to the class the cb belongs to
+ * @param[in] context could be a pointer to class (*this)
+ *
+ * @return TRUE if request accepted, FALSE if not
+ */
+template <typename T>
+bool BackgroundPublish::publish(const char* name,
+                const char* data,
+                PublishFlags flags,
+                int level,
+                void (T::*cb)(publishStatus status, const char *, const char *, const void *),
+                T* instance,
+                const void* context) {
+    return publish(name, 
+                data, 
+                flags, 
+                level, 
+                std::bind(cb, instance, std::placeholders::_1, 
+                    std::placeholders::_2, std::placeholders::_3, std::placeholders::_4), 
+                context);
+}

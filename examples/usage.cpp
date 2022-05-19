@@ -16,7 +16,7 @@
 
 #include "BackgroundPublish.h"
 
-constexpr uint32_t TIMEOUT_SEC = 2000;
+constexpr uint32_t TIMEOUT_SEC = 1000;
 constexpr unsigned int APP_VERSION = 1;
 
 SYSTEM_THREAD(ENABLED);
@@ -76,11 +76,11 @@ void loop() {
             Log.info("Not connected to cloud");
         }
         timer_start_ms = millis();
-    }
-    //cleanup any unsent data after 100
-    if(counter > 100) {
-        BackgroundPublish::instance().cleanup();
-        counter = 0;
+        //cleanup any unsent data after 100
+        if(counter > 100) {
+            BackgroundPublish::instance().cleanup();
+            counter = 0;
+        }
     }
 }
 

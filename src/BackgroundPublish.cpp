@@ -49,21 +49,28 @@ void BackgroundPublish::thread_f() {
         //priority queue with items is processed first. If the highest priority
         //queue is empty it just iterates to the next priority 
         //queue and so forth
-        for(auto queue : _queues) {
-            _mutex.lock();
-            if(!queue->empty()) {
-                if(millis() - process_time_ms >= PROCESS_QUEUE_INTERVAL_MS) {
+        if(millis() - process_time_ms >= PROCESS_QUEUE_INTERVAL_MS) {
+            for(auto queue : _queues) {
+                _mutex.lock();
+                if(!queue->empty()) {
                     process_time_ms = millis();
                     const publish_event_t event = queue->front(); //return an element
                     queue->pop(); //remove the element
-                    process_publish(event);
                     _mutex.unlock();
+                    process_publish(event);
                     break;
                 }
+                _mutex.unlock();
             }
-            _mutex.unlock();
         }
+
+        // Minimal force yield to processor
+        delay(1); 
+
     } while(keep_running());
+
+    // Exit thread
+    os_thread_exit(nullptr);
 }
 
 bool BackgroundPublish::publish(const char *name,
@@ -72,7 +79,7 @@ bool BackgroundPublish::publish(const char *name,
                                 int level,
                                 publish_completed_cb_t cb,
                                 const void *context) {
-    publish_event_t event_details;
+    publish_event_t event_details{};
     bool returnval = true; //assume success
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
@@ -127,21 +134,21 @@ publishStatus BackgroundPublish::process_publish(const publish_event_t& event) {
     while(!ok.isDone()) { //yield to other threads if not done publishing
         delay(1);
     }
-       
+
     if(ok.isSucceeded()) {
         status = publishStatus::PUBLISH_COMPLETE;
-        Log.info("Publish succedded");
+        Log.info("Publish succeeded");
     }
     else {
         status = publishStatus::PUBLISH_BUSY;
         Log.info("Publish busy/failed");
     }
 
-    if(event.completed_cb != nullptr) {
+    if(event.completed_cb != nullptr) {       
         event.completed_cb(status, 
                         event.event_name, 
                         event.event_data, 
-                        event.event_context);
+                        event.event_context);                        
     }
 
     return status;

@@ -54,7 +54,7 @@ void BackgroundPublish::thread_f() {
                 _mutex.lock();
                 if(!queue->empty()) {
                     process_time_ms = millis();
-                    const publish_event_t event = queue->front(); //return an element
+                    publish_event_t event = queue->front(); //return an element
                     queue->pop(); //remove the element
                     _mutex.unlock();
                     process_publish(event);
@@ -82,7 +82,7 @@ bool BackgroundPublish::publish(const char *name,
     publish_event_t event_details{};
     bool returnval = true; //assume success
     std::lock_guard<RecursiveMutex> lock(_mutex);
-
+    
     event_details.event_flags = flags;
     event_details.event_name = name;
     event_details.event_data = data;

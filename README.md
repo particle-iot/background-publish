@@ -2,7 +2,7 @@
 Particle library to publish data in a non-blocking manor. Creates a vector of 
 N Queues with N priority levels that are zero indexed. Lower index (level) is a 
 higher priority (i.e 0 index highest priority), and higher indexes have lower 
-priority.The highest priority queue is processed first in the thread, and 
+priority. The highest priority queue is processed first in the thread, and 
 then the lower priority queue is processed next, and so forth. A callback can
 be called after a request for publishing has finished. The status of that 
 particular publish is passed to the callback. The user is responsible for keeping
@@ -11,7 +11,6 @@ the lifetime of the data to publish valid until the publish has finished
 The BackgroundPublish class is a singleton, so you will only be able to create 
 one instance of the class.
 
----
 ### Example
 Look at the usage.cpp file for a basic example of how to use the library. Merely
 call BackgroundPublish::instance() to access the public functions. You'll need
@@ -19,6 +18,14 @@ to call init() once on start up, and then publish() when you want to send data.
 If you need to flush the queues (before shutting down or going to sleep) 
 call cleanup(). It's that simple.
 
+### Unit tests
+Directions for running unit tests:
+1. `mkdir build`
+2. `cd build && cmake ..`
+3. `make`
+4. `./background-publish-test`
+
+---
 ### LICENSE
 
 Unless stated elsewhere, file headers or otherwise, all files herein are licensed under an Apache License, Version 2.0. For more information, please read the LICENSE file.

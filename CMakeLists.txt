@@ -25,4 +25,4 @@ endif()
 
 include_directories(src/ test/)
 
-add_executable(background-publish-test test/test.cpp src/BackgroundPublish.cpp test/Particle.cpp)
+add_executable(background-publish-test test/test.cpp src/BackgroundPublish.cpp test/Particle.cpp test/concurrent_hal.cpp)

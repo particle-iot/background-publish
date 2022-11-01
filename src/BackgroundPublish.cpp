@@ -20,13 +20,15 @@ constexpr int NUM_OF_QUEUES {2};
 constexpr system_tick_t PROCESS_QUEUE_INTERVAL_MS {1000};
 constexpr int NUM_ENTRIES {8};
 
+Logger bp_log("background-publish");
+
 BackgroundPublish::BackgroundPublish() {
     for(int i = 0; i < NUM_OF_QUEUES; i++) {
         std::queue<publish_event_t>* queue_ptr = 
                         new (std::nothrow) std::queue<publish_event_t>;
         if(queue_ptr != nullptr) {
             if(!_queues.append(queue_ptr)) {
-                Log.error("Failed to append queue to vector");
+                bp_log.error("Failed to append queue to vector");
             }
         }
     }
@@ -90,15 +92,15 @@ bool BackgroundPublish::publish(const char *name,
 
     //make sure the level not greater than number of queues you can index
     if (level >= NUM_OF_QUEUES) {
-        Log.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
+        bp_log.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
         return false;
     }
     if(_queues.at(level)->size() >= NUM_ENTRIES) {
-        Log.error("Exceeds number of entries allowed");
+        bp_log.error("Exceeds number of entries allowed");
         return false;
     }
     _queues.at(level)->push(event_details);
-    Log.info("Publish request accepted");
+    bp_log.info("Publish request accepted");
 
     return true;
 }
@@ -131,11 +133,11 @@ publishStatus BackgroundPublish::process_publish(const publish_event_t& event) {
 
     if(ok.isSucceeded()) {
         status = publishStatus::PUBLISH_COMPLETE;
-        Log.info("Publish succeeded");
+        bp_log.info("Publish succeeded");
     }
     else {
         status = publishStatus::PUBLISH_BUSY;
-        Log.warn("Publish busy/failed");
+        bp_log.warn("Publish busy/failed");
     }
 
     if(event.completed_cb != nullptr) {       

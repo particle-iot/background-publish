@@ -16,9 +16,9 @@
 
 #include "BackgroundPublish.h"
 
-constexpr int NUM_OF_QUEUES = 2;
-constexpr system_tick_t PROCESS_QUEUE_INTERVAL_MS = 1000;
-const int NUM_ENTRIES = 8;
+constexpr int NUM_OF_QUEUES {2};
+constexpr system_tick_t PROCESS_QUEUE_INTERVAL_MS {1000};
+constexpr int NUM_ENTRIES {8};
 
 BackgroundPublish::BackgroundPublish() {
     for(int i = 0; i < NUM_OF_QUEUES; i++) {
@@ -26,7 +26,7 @@ BackgroundPublish::BackgroundPublish() {
                         new (std::nothrow) std::queue<publish_event_t>;
         if(queue_ptr != nullptr) {
             if(!_queues.append(queue_ptr)) {
-                Log.info("Failed to append queue to vector");
+                Log.error("Failed to append queue to vector");
             }
         }
     }
@@ -80,7 +80,6 @@ bool BackgroundPublish::publish(const char *name,
                                 publish_completed_cb_t cb,
                                 const void *context) {
     publish_event_t event_details{};
-    bool returnval = true; //assume success
     std::lock_guard<RecursiveMutex> lock(_mutex);
     
     event_details.event_flags = flags;
@@ -90,38 +89,33 @@ bool BackgroundPublish::publish(const char *name,
     event_details.event_context = context;
 
     //make sure the level not greater than number of queues you can index
-    if(level < (NUM_OF_QUEUES)) {
-        if(_queues.at(level)->size() < NUM_ENTRIES) {
-            _queues.at(level)->push(event_details);
-            Log.info("Publish request accepted");
-        }
-        else {
-            Log.info("Exceeds number of entries allowed");
-            returnval = false;
-        }
+    if (level >= NUM_OF_QUEUES) {
+        Log.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
+        return false;
     }
-    else {
-        Log.info("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
-        returnval = false;
+    if(_queues.at(level)->size() >= NUM_ENTRIES) {
+        Log.error("Exceeds number of entries allowed");
+        return false;
     }
+    _queues.at(level)->push(event_details);
+    Log.info("Publish request accepted");
 
-    return returnval;
+    return true;
 }
 
 void BackgroundPublish::cleanup() {
-    publish_event_t  event;
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
     for(auto queue : _queues) {
         while(!queue->empty()) {
-            event = queue->front(); //return an element
-            queue->pop(); //remove the element
+            publish_event_t &event {queue->front()};
             if(event.completed_cb != nullptr) {
                 event.completed_cb(publishStatus::PUBLISH_CLEANUP, 
                             event.event_name, 
                             event.event_data, 
                             event.event_context);
             }
+            queue->pop();
         }
     }
 }
@@ -141,7 +135,7 @@ publishStatus BackgroundPublish::process_publish(const publish_event_t& event) {
     }
     else {
         status = publishStatus::PUBLISH_BUSY;
-        Log.info("Publish busy/failed");
+        Log.warn("Publish busy/failed");
     }
 
     if(event.completed_cb != nullptr) {       

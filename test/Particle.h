@@ -291,8 +291,12 @@ private:
 
 class Logger {
 public:
+    Logger() = default;
+    Logger(const char *) {};
+    void trace(const char* str, ...) {};
     void info(const char* str, ...) {};
     void error(const char* str, ...) {};
+    void warn(const char* str, ...) {};
 };
 
 extern SystemClass System;
@@ -352,6 +356,84 @@ private:
     explicit Flags(ValueT val);
 };
 
+class Error {
+public:
+    // Error type
+    enum Type {
+        NONE = 0,
+        UNKNOWN,
+        LIMIT_EXCEEDED,
+        CANCELLED,
+    };
+
+    Error(Type type = UNKNOWN);
+    Error(Type type, const char* msg);
+    explicit Error(const char* msg);
+    Error(const Error& error);
+
+    Type type() const;
+    const char* message() const;
+
+    bool operator==(const Error& error) const;
+    bool operator!=(const Error& error) const;
+    bool operator==(Type type) const;
+    bool operator!=(Type type) const;
+
+    explicit operator bool() const;
+
+private:
+    const char* msg_;
+    Type type_;
+
+    friend void swap(Error& error1, Error& error2);
+};
+
+inline Error::Error(Type type) :
+        msg_(nullptr),
+        type_(type) {
+}
+
+inline Error::Error(Type type, const char* msg) :
+        msg_(msg),
+        type_(type) {
+}
+
+inline Error::Error(const char* msg) :
+        Error(UNKNOWN, msg) {
+}
+
+inline Error::Error(const Error& error) :
+        Error(error.type_, error.msg_) {
+}
+
+inline Error::Type Error::type() const {
+    return type_;
+}
+
+inline const char* Error::message() const {
+    return msg_ ? msg_ : "";
+}
+
+inline bool Error::operator==(const Error& error) const {
+    return (type_ == error.type_);
+}
+
+inline bool Error::operator!=(const Error& error) const {
+    return !operator==(error);
+}
+
+inline bool Error::operator==(Type type) const {
+    return (type_ == type);
+}
+
+inline bool Error::operator!=(Type type) const {
+    return !operator==(type);
+}
+
+inline Error::operator bool() const {
+    return type_ != NONE;
+}
+
 template<typename ContextT>
 class Future {
 public:
@@ -364,8 +446,13 @@ public:
         return isDoneReturn;
     }
 
+    Error error() const {
+        return err;
+    }
+
     bool isDoneReturn;
     bool isSucceededReturn;
+    Error err;
 };
 } // namespace particle
 
@@ -420,3 +507,4 @@ public:
             size_t stack_size=OS_THREAD_STACK_SIZE_DEFAULT) {
     }
 };
+

@@ -17,10 +17,8 @@
 #include "BackgroundPublish.h"
 
 constexpr int NUM_OF_QUEUES {2};
-constexpr system_tick_t PROCESS_QUEUE_INTERVAL_MS {1000};
-constexpr int NUM_ENTRIES {8};
 
-Logger bp_log("background-publish");
+static Logger logger("background-publish");
 
 BackgroundPublish::BackgroundPublish() {
     for(int i = 0; i < NUM_OF_QUEUES; i++) {
@@ -28,7 +26,7 @@ BackgroundPublish::BackgroundPublish() {
                         new (std::nothrow) std::queue<publish_event_t>;
         if(queue_ptr != nullptr) {
             if(!_queues.append(queue_ptr)) {
-                bp_log.error("Failed to append queue to vector");
+                logger.error("Failed to append queue to vector");
             }
         }
     }
@@ -36,13 +34,40 @@ BackgroundPublish::BackgroundPublish() {
 
 void BackgroundPublish::init() {
     if(_thread == nullptr) {
-        _thread = new (std::nothrow) Thread("background_publish", 
-                                        [this]() {thread_f();}, 
+        _thread = new (std::nothrow) Thread("background_publish",
+                                        std::bind(&BackgroundPublish::thread_f, this),
                                         OS_THREAD_PRIORITY_DEFAULT);
     }
 }
 
+static particle::Error process_publish(const publish_event_t& event) {
+    auto promise {Particle.publish(event.event_name,
+                                   event.event_data,
+                                   event.event_flags)};
+
+    // Can't use promise.wait() outside of the application thread
+    while(!promise.isDone()) {
+        delay(1); // yield to other threads
+    }
+    auto error {promise.error()};
+
+    if(event.completed_cb != nullptr) {
+        event.completed_cb(error,
+                        event.event_name,
+                        event.event_data,
+                        event.event_context);
+    } else {
+        if (error != particle::Error::NONE) {
+            // log error if no callback is receiving them
+            logger.error("Publish failed: %s", error.message());
+        }
+    }
+
+    return error;
+}
+
 void BackgroundPublish::thread_f() {
+    constexpr system_tick_t process_interval {1000u};
     static system_tick_t process_time_ms = millis();
 
     do {
@@ -51,13 +76,15 @@ void BackgroundPublish::thread_f() {
         //priority queue with items is processed first. If the highest priority
         //queue is empty it just iterates to the next priority 
         //queue and so forth
-        if(millis() - process_time_ms >= PROCESS_QUEUE_INTERVAL_MS) {
-            for(auto queue : _queues) {
+        auto now {millis()};
+        if(now - process_time_ms >= process_interval) {
+            for(auto &queue : _queues) {
                 _mutex.lock();
                 if(!queue->empty()) {
-                    process_time_ms = millis();
-                    publish_event_t event = queue->front(); //return an element
-                    queue->pop(); //remove the element
+                    process_time_ms = now;
+                    // Copy the event and pop so the publish is done without holding the mutex
+                    publish_event_t event {queue->front()};
+                    queue->pop();
                     _mutex.unlock();
                     process_publish(event);
                     break;
@@ -92,15 +119,15 @@ bool BackgroundPublish::publish(const char *name,
 
     //make sure the level not greater than number of queues you can index
     if (level >= NUM_OF_QUEUES) {
-        bp_log.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
+        logger.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
         return false;
     }
     if(_queues.at(level)->size() >= NUM_ENTRIES) {
-        bp_log.error("Exceeds number of entries allowed");
+        logger.error("Exceeds number of entries allowed");
         return false;
     }
     _queues.at(level)->push(event_details);
-    bp_log.info("Publish request accepted");
+    logger.info("Publish request accepted");
 
     return true;
 }
@@ -112,7 +139,7 @@ void BackgroundPublish::cleanup() {
         while(!queue->empty()) {
             publish_event_t &event {queue->front()};
             if(event.completed_cb != nullptr) {
-                event.completed_cb(publishStatus::PUBLISH_CLEANUP, 
+                event.completed_cb(particle::Error::CANCELLED,
                             event.event_name, 
                             event.event_data, 
                             event.event_context);
@@ -120,34 +147,6 @@ void BackgroundPublish::cleanup() {
             queue->pop();
         }
     }
-}
-
-publishStatus BackgroundPublish::process_publish(const publish_event_t& event) {
-    publishStatus status;
-    auto ok = Particle.publish(event.event_name, 
-                            event.event_data, 
-                            event.event_flags);
-    while(!ok.isDone()) { //yield to other threads if not done publishing
-        delay(1);
-    }
-
-    if(ok.isSucceeded()) {
-        status = publishStatus::PUBLISH_COMPLETE;
-        bp_log.info("Publish succeeded");
-    }
-    else {
-        status = publishStatus::PUBLISH_BUSY;
-        bp_log.warn("Publish busy/failed");
-    }
-
-    if(event.completed_cb != nullptr) {       
-        event.completed_cb(status, 
-                        event.event_name, 
-                        event.event_data, 
-                        event.event_context);                        
-    }
-
-    return status;
 }
 
 bool __attribute__((weak)) keep_running() {

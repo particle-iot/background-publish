@@ -25,7 +25,7 @@ void priority_low_cb(particle::Error status,
     low_cb_counter++;
 }
 
-class TestBackgroundPublish : public BackgroundPublish {
+class TestBackgroundPublish : public BackgroundPublish<> {
 public:
     void processOnce();
 };
@@ -58,7 +58,7 @@ TEST_CASE("Test Background Publish") {
     publisher.processOnce(); //run once at the top to establish
     //a start time for the processOnce
 
-    for(int i = 0; i < NUM_ENTRIES; i++) {
+    for(int i = 0; i < 8; i++) {
         publisher.publish("TEST_PUB_HIGH",
                             str.c_str(),
                             PRIVATE,

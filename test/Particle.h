@@ -501,10 +501,14 @@ const PublishFlag WITH_ACK(PUBLISH_EVENT_FLAG_WITH_ACK);
 class Thread
 {
 public:
+    Thread() = default;
+
     Thread(const char *name, 
             wiring_thread_fn_t function,
             os_thread_prio_t priority=OS_THREAD_PRIORITY_DEFAULT, 
             size_t stack_size=OS_THREAD_STACK_SIZE_DEFAULT) {
     }
+
+    bool join() { return true; }
 };
 

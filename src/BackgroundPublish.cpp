@@ -16,31 +16,36 @@
 
 #include "BackgroundPublish.h"
 
-constexpr int NUM_OF_QUEUES {2};
-
 static Logger logger("background-publish");
 
-BackgroundPublish::BackgroundPublish() {
-    for(int i = 0; i < NUM_OF_QUEUES; i++) {
-        std::queue<publish_event_t>* queue_ptr = 
-                        new (std::nothrow) std::queue<publish_event_t>;
-        if(queue_ptr != nullptr) {
-            if(!_queues.append(queue_ptr)) {
-                logger.error("Failed to append queue to vector");
-            }
-        }
-    }
+BackgroundPublish::BackgroundPublish() :
+    running {false},
+    _thread()
+{
 }
 
 void BackgroundPublish::init() {
-    if(_thread == nullptr) {
-        _thread = new (std::nothrow) Thread("background_publish",
-                                        std::bind(&BackgroundPublish::thread_f, this),
-                                        OS_THREAD_PRIORITY_DEFAULT);
+    if (running) {
+        logger.warn("init() called on running publisher");
+        return;
     }
+    running = true;
+    _thread = Thread("background_publish",
+                     std::bind(&BackgroundPublish::thread_f, this),
+                     OS_THREAD_PRIORITY_DEFAULT);
 }
 
-static particle::Error process_publish(const publish_event_t& event) {
+void BackgroundPublish::stop() {
+    if (!running) {
+        logger.warn("stop() called on non-running publisher");
+        return;
+    }
+    running = false;
+    _thread.join();
+    cleanup();
+}
+
+particle::Error BackgroundPublish::process_publish(const publish_event_t& event) {
     auto promise {Particle.publish(event.event_name,
                                    event.event_data,
                                    event.event_flags)};
@@ -53,12 +58,12 @@ static particle::Error process_publish(const publish_event_t& event) {
 
     if(event.completed_cb != nullptr) {
         event.completed_cb(error,
-                        event.event_name,
-                        event.event_data,
-                        event.event_context);
+                           event.event_name,
+                           event.event_data,
+                           event.event_context);
     } else {
         if (error != particle::Error::NONE) {
-            // log error if no callback is receiving them
+            // log error if no callback is used
             logger.error("Publish failed: %s", error.message());
         }
     }
@@ -70,7 +75,7 @@ void BackgroundPublish::thread_f() {
     constexpr system_tick_t process_interval {1000u};
     static system_tick_t process_time_ms = millis();
 
-    do {
+    while(running) {
         //Set to always start with the highest priority queue, and after each
         //publish to break out of the loop. This gaurantees that the highest
         //priority queue with items is processed first. If the highest priority
@@ -80,11 +85,11 @@ void BackgroundPublish::thread_f() {
         if(now - process_time_ms >= process_interval) {
             for(auto &queue : _queues) {
                 _mutex.lock();
-                if(!queue->empty()) {
+                if(!queue.empty()) {
                     process_time_ms = now;
                     // Copy the event and pop so the publish is done without holding the mutex
-                    publish_event_t event {queue->front()};
-                    queue->pop();
+                    publish_event_t event {queue.front()};
+                    queue.pop();
                     _mutex.unlock();
                     process_publish(event);
                     break;
@@ -93,10 +98,8 @@ void BackgroundPublish::thread_f() {
             }
         }
 
-        // Minimal force yield to processor
-        delay(1); 
-
-    } while(keep_running());
+        delay(1); // force yield to processor
+    }
 
     // Exit thread
     os_thread_exit(nullptr);
@@ -109,7 +112,6 @@ bool BackgroundPublish::publish(const char *name,
                                 publish_completed_cb_t cb,
                                 const void *context) {
     publish_event_t event_details{};
-    std::lock_guard<RecursiveMutex> lock(_mutex);
     
     event_details.event_flags = flags;
     event_details.event_name = name;
@@ -117,17 +119,24 @@ bool BackgroundPublish::publish(const char *name,
     event_details.completed_cb = cb;
     event_details.event_context = context;
 
+    if (!running) {
+        logger.error("publisher not initialized");
+        return false;
+    }
+
     //make sure the level not greater than number of queues you can index
     if (level >= NUM_OF_QUEUES) {
         logger.error("Level:%d exceeds number of queues:%d", level, NUM_OF_QUEUES);
         return false;
     }
-    if(_queues.at(level)->size() >= NUM_ENTRIES) {
+
+    std::lock_guard<RecursiveMutex> lock(_mutex);
+
+    if(_queues[level].size() >= NUM_ENTRIES) {
         logger.error("Exceeds number of entries allowed");
         return false;
     }
-    _queues.at(level)->push(event_details);
-    logger.info("Publish request accepted");
+    _queues[level].push(event_details);
 
     return true;
 }
@@ -135,20 +144,16 @@ bool BackgroundPublish::publish(const char *name,
 void BackgroundPublish::cleanup() {
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
-    for(auto queue : _queues) {
-        while(!queue->empty()) {
-            publish_event_t &event {queue->front()};
+    for(auto &queue : _queues) {
+        while(!queue.empty()) {
+            publish_event_t &event {queue.front()};
             if(event.completed_cb != nullptr) {
                 event.completed_cb(particle::Error::CANCELLED,
                             event.event_name, 
                             event.event_data, 
                             event.event_context);
             }
-            queue->pop();
+            queue.pop();
         }
     }
-}
-
-bool __attribute__((weak)) keep_running() {
-    return true;
 }

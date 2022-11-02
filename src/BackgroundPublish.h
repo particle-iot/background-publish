@@ -16,11 +16,13 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <queue>
 #include "Particle.h"
 
+constexpr int NUM_OF_QUEUES {2};
 constexpr int NUM_ENTRIES {8};
 
 using publish_completed_cb_t = std::function<void(particle::Error status,
@@ -28,29 +30,37 @@ using publish_completed_cb_t = std::function<void(particle::Error status,
     const char *event_data,
     const void *event_context)>;
 
-struct publish_event_t {
-    PublishFlags event_flags;
-    publish_completed_cb_t completed_cb;
-    const char* event_name;
-    const char* event_data;
-    const void* event_context;
-};
-
 class BackgroundPublish {
 public:
-
     static BackgroundPublish& instance() {
         static BackgroundPublish instance;
         return instance;
     }
 
     /**
-     * @brief Initialize the BackgroundPublish
+     * @brief Creates the queues needed on construction, and stores them in the
+     * _queues vector
+     *
+     * @details NUM_OF_QUEUES determines how many queues get created. Each queue
+     * has a priority level determined by its index in the _queues vector. The
+     * lower the index, the higher the priority
+     */
+    BackgroundPublish();
+
+    /**
+     * @brief Initialize the publisher
      *
      * @details Creates the background publish thread
      *
      */
     void init();
+
+    /**
+     * @brief Stop the publisher
+     *
+     * @details Clean up the queues and stop the background publish thread
+     */
+    void stop();
 
     /**
      * @brief Request a publish message to the cloud
@@ -117,24 +127,15 @@ public:
                                  std::placeholders::_2, std::placeholders::_3, std::placeholders::_4),
                        context);
     }
-    
-    /**
-     * @brief Thread for the background publish
-     *
-     * @details Thread protected with lock_guard mutex to prevent the queues
-     * being peeked or popped from in different contexts while attempting to 
-     * publish
-     */
-    void thread_f();
 
     /**
      * @brief Iterate through the queues and make calls to the 
      * callback functions
      *
      * @details Will iterate through each queue taking an item from the queue
-     * and calling it's callback function with a status of PUBLISH_CLEANUP.
+     * and calling it's callback function with a status of CANCELLED.
      * Intended for a user provided callback to potentially key off of this 
-     * PUBLISH_CLEANUP and back up a publish to flash, or take an other 
+     * CANCELLED and back up a publish to flash, or take an other
      * meaningful action
      */
     void cleanup();
@@ -143,29 +144,22 @@ public:
     BackgroundPublish(BackgroundPublish const&) = delete; 
     void operator=(BackgroundPublish const&)    = delete;
 
+protected:
+    struct publish_event_t {
+        PublishFlags event_flags;
+        publish_completed_cb_t completed_cb;
+        const char* event_name;
+        const char* event_data;
+        const void* event_context;
+    };
+
+    std::array<std::queue<publish_event_t>, NUM_OF_QUEUES> _queues;
+    static particle::Error process_publish(const publish_event_t& event);
+
 private:
-    /**
-     * @brief Creates the queues needed on construction, and stores them in the
-     * _queues vector
-     *
-     * @details NUM_OF_QUEUES determines how many queues get created. Each queue
-     * has a priority level determined by its index in the _queues vector. The
-     * lower the index, the higher the priority
-     */
-    BackgroundPublish();
+    void thread_f();
 
     RecursiveMutex _mutex;
-    Thread *_thread = nullptr;
-    Vector<std::queue<publish_event_t>*> _queues;
+    bool running;
+    Thread _thread;
 };
-
-/**
- * @brief To be checked by the thread_f to know if the thread should keep
- * running
- *
- * @details This function is weakly defined so it can be re-written to return
- * false for unit tests.
- *
- * @return TRUE keep thread running, FALSE stop thread from running
- */
-bool keep_running();

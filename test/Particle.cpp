@@ -13,8 +13,6 @@ SystemClass System;
 Logger Log;
 CloudClass Particle;
 
-std::queue<publish_event_t> my_queue;
-
 hal_i2c_config_t defaultWireConfig() {
 	hal_i2c_config_t config = {
 		.size = sizeof(hal_i2c_config_t),

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <functional>
 #include <queue>
+
 #include "Particle.h"
 
 using publish_completed_cb_t = std::function<void(particle::Error status,
@@ -28,7 +29,7 @@ using publish_completed_cb_t = std::function<void(particle::Error status,
     const char *event_data,
     const void *event_context)>;
 
-template <std::size_t NumQueues = 2u, std::size_t MaxEntries = 8u>
+template<std::size_t NumQueues = 2u>
 class BackgroundPublish {
 public:
     /**
@@ -39,7 +40,7 @@ public:
      * has a priority level determined by its index in the _queues vector. The
      * lower the index, the higher the priority
      */
-    BackgroundPublish() : running {false}, _thread {} {}
+    BackgroundPublish(std::size_t max_entries = 8u) : running {false}, maxEntries {max_entries}, _thread()  {}
 
     /**
      * @brief Initialize the publisher
@@ -68,20 +69,18 @@ public:
      * @param[in] name of the event requested
      * @param[in] data pointer to data to send
      * @param[in] flags PublishFlags type for the request
-     * @param[in] level priority level of message. Lowest is highest priority.
-     *  Zero indexed
+     * @param[in] priority priority of message. Lowest is highest priority, zero indexed
      * @param[in] cb callback on publish success or failure
      * @param[in] context could be a pointer to class (*this)
      *
      * @return TRUE if request accepted, FALSE if not
      */
     bool publish(const char* name,
-                const char* data = nullptr,
-                PublishFlags flags = PRIVATE,
-                int level = 0,
-                publish_completed_cb_t cb = nullptr,
-                const void*
-                context = nullptr);
+                 const char* data = nullptr,
+                 PublishFlags flags = PRIVATE,
+                 std::size_t priority = 0u,
+                 publish_completed_cb_t cb = nullptr,
+                 const void *context = nullptr);
 
     /**
      * @brief Wrapper class for callbacks that are for non-static functions
@@ -96,19 +95,18 @@ public:
      * @param[in] name of the event requested
      * @param[in] data pointer to data to send
      * @param[in] flags PublishFlags type for the request
-     * @param[in] level priority level of message. Lowest is highest priority.
-     *  Zero indexed
+     * @param[in] priority priority of message. Lowest is highest priority, zero indexed
      * @param[in] cb callback on publish success or failure
      * @param[in] this invisible this pointer to the class the cb belongs to
      * @param[in] context could be a pointer to class (*this)
      *
      * @return TRUE if request accepted, FALSE if not
      */
-    template <typename T>
+    template<typename T>
     bool publish(const char* name,
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
-                 int level = 0,
+                 std::size_t priority = 0u,
                  void (T::*cb)(particle::Error status, const char *, const char *, const void *) = nullptr,
                  T* instance = nullptr,
                  const void* context = nullptr)
@@ -116,7 +114,7 @@ public:
         return publish(name,
                        data,
                        flags,
-                       level,
+                       priority,
                        std::bind(cb, instance, std::placeholders::_1,
                                  std::placeholders::_2, std::placeholders::_3, std::placeholders::_4),
                        context);
@@ -139,6 +137,7 @@ public:
     void operator=(BackgroundPublish const&)    = delete;
 
 protected:
+    // Define these as protected so the test case can access these to simulate the processing thread
     struct publish_event_t {
         PublishFlags event_flags;
         publish_completed_cb_t completed_cb;
@@ -151,32 +150,35 @@ protected:
     static particle::Error process_publish(const publish_event_t& event);
 
 private:
-    void thread_f();
+    void thread();
 
     RecursiveMutex _mutex;
     bool running;
     Thread _thread;
+    std::size_t maxEntries;
 
     static Logger logger;
 };
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-Logger BackgroundPublish<NumQueues, NumEntries>::logger("background-publish");
+template<std::size_t NumQueues>
+Logger BackgroundPublish<NumQueues>::logger("background-publish");
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-void BackgroundPublish<NumQueues, NumEntries>::init() {
+template<std::size_t NumQueues>
+void BackgroundPublish<NumQueues>::init()
+{
     if (running) {
         logger.warn("init() called on running publisher");
         return;
     }
     running = true;
     _thread = Thread("background_publish",
-                     std::bind(&BackgroundPublish::thread_f, this),
+                     std::bind(&BackgroundPublish::thread, this),
                      OS_THREAD_PRIORITY_DEFAULT);
 }
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-void BackgroundPublish<NumQueues, NumEntries>::stop() {
+template<std::size_t NumQueues>
+void BackgroundPublish<NumQueues>::stop()
+{
     if (!running) {
         logger.warn("stop() called on non-running publisher");
         return;
@@ -186,8 +188,9 @@ void BackgroundPublish<NumQueues, NumEntries>::stop() {
     cleanup();
 }
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-particle::Error BackgroundPublish<NumQueues, NumEntries>::process_publish(const publish_event_t& event) {
+template<std::size_t NumQueues>
+particle::Error BackgroundPublish<NumQueues>::process_publish(const publish_event_t& event)
+{
     auto promise {Particle.publish(event.event_name,
                                    event.event_data,
                                    event.event_flags)};
@@ -206,15 +209,15 @@ particle::Error BackgroundPublish<NumQueues, NumEntries>::process_publish(const 
     } else {
         if (error != particle::Error::NONE) {
             // log error if no callback is used
-            logger.error("Publish failed: %s", error.message());
+            logger.error("publish failed: %s", error.message());
         }
     }
 
     return error;
 }
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-void BackgroundPublish<NumQueues, NumEntries>::thread_f() {
+template<std::size_t NumQueues>
+void BackgroundPublish<NumQueues>::thread() {
     constexpr system_tick_t process_interval {1000u};
     system_tick_t process_time_ms = millis();
 
@@ -248,13 +251,14 @@ void BackgroundPublish<NumQueues, NumEntries>::thread_f() {
     os_thread_exit(nullptr);
 }
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-bool BackgroundPublish<NumQueues, NumEntries>::publish(const char *name,
-                                const char *data,
-                                PublishFlags flags,
-                                int level,
-                                publish_completed_cb_t cb,
-                                const void *context) {
+template<std::size_t NumQueues>
+bool BackgroundPublish<NumQueues>::publish(const char *name,
+                                           const char *data,
+                                           PublishFlags flags,
+                                           std::size_t priority,
+                                           publish_completed_cb_t cb,
+                                           const void *context)
+{
     publish_event_t event_details{};
 
     event_details.event_flags = flags;
@@ -268,25 +272,25 @@ bool BackgroundPublish<NumQueues, NumEntries>::publish(const char *name,
         return false;
     }
 
-    //make sure the level not greater than number of queues you can index
-    if (level >= NumQueues) {
-        logger.error("Level:%d exceeds number of queues:%d", level, NumQueues);
+    if (priority >= NumQueues) {
+        logger.error("priority %d exceeds number of queues %d", priority, NumQueues);
         return false;
     }
 
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
-    if(_queues[level].size() >= NumEntries) {
-        logger.error("Exceeds number of entries allowed");
+    if(_queues[priority].size() >= maxEntries) {
+        logger.error("queue at priority %d is full");
         return false;
     }
-    _queues[level].push(event_details);
+    _queues[priority].push(event_details);
 
     return true;
 }
 
-template <std::size_t NumQueues, std::size_t NumEntries>
-void BackgroundPublish<NumQueues, NumEntries>::cleanup() {
+template<std::size_t NumQueues>
+void BackgroundPublish<NumQueues>::cleanup()
+{
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
     for(auto &queue : _queues) {

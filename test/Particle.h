@@ -271,6 +271,12 @@ public:
     bool isSucceededReturn;
     Error err;
 };
+
+namespace protocol {
+    const size_t MAX_EVENT_NAME_LENGTH = 64;
+    const size_t MAX_EVENT_DATA_LENGTH = 1024;
+}
+
 } // namespace particle
 
 struct PublishFlagType; // Tag type for Particle.publish() flags

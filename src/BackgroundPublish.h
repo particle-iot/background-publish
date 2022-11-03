@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <queue>
 
@@ -141,9 +142,9 @@ protected:
     struct publish_event_t {
         PublishFlags event_flags;
         publish_completed_cb_t completed_cb;
-        const char* event_name;
-        const char* event_data;
-        const void* event_context;
+        const void *event_context;
+        char event_name[particle::protocol::MAX_EVENT_NAME_LENGTH + 1];
+        char event_data[particle::protocol::MAX_EVENT_DATA_LENGTH + 1];
     };
 
     std::array<std::queue<publish_event_t>, NumQueues> _queues;
@@ -259,18 +260,20 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
                                            publish_completed_cb_t cb,
                                            const void *context)
 {
-    publish_event_t event_details{};
-
-    event_details.event_flags = flags;
-    event_details.event_name = name;
-    event_details.event_data = data;
-    event_details.completed_cb = cb;
-    event_details.event_context = context;
-
     if (!running) {
         logger.error("publisher not initialized");
         return false;
     }
+
+    publish_event_t event_details{};
+    event_details.event_flags = flags;
+    event_details.completed_cb = cb;
+    event_details.event_context = context;
+
+    std::strncpy(event_details.event_name, name, sizeof(event_details.event_name));
+    event_details.event_name[sizeof(event_details.event_name) - 1] = '\0';
+    std::strncpy(event_details.event_data, data, sizeof(event_details.event_data));
+    event_details.event_data[sizeof(event_details.event_data) - 1] = '\0';
 
     if (priority >= NumQueues) {
         logger.error("priority %d exceeds number of queues %d", priority, NumQueues);

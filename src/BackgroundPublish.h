@@ -44,12 +44,12 @@ public:
     BackgroundPublish(std::size_t max_entries = 8u) : running {false}, maxEntries {max_entries}, _thread()  {}
 
     /**
-     * @brief Initialize the publisher
+     * @brief Start the publisher
      *
      * @details Creates the background publish thread
      *
      */
-    void init();
+    void start();
 
     /**
      * @brief Stop the publisher
@@ -165,10 +165,10 @@ template<std::size_t NumQueues>
 Logger BackgroundPublish<NumQueues>::logger("background-publish");
 
 template<std::size_t NumQueues>
-void BackgroundPublish<NumQueues>::init()
+void BackgroundPublish<NumQueues>::start()
 {
     if (running) {
-        logger.warn("init() called on running publisher");
+        logger.warn("start() called on running publisher");
         return;
     }
     running = true;
@@ -219,22 +219,21 @@ particle::Error BackgroundPublish<NumQueues>::process_publish(const publish_even
 
 template<std::size_t NumQueues>
 void BackgroundPublish<NumQueues>::thread() {
+    constexpr std::size_t burst_rate {2u}; // allowable burst rate (Hz), Device OS allows up to 4/s
     constexpr system_tick_t process_interval {1000u};
-    system_tick_t process_time_ms = millis();
+
+    system_tick_t publish_t[burst_rate] {}; // publish time of the last (burst_rate) sends in a circular buffer
+    std::size_t i {}; // publish time of the previous (burst_rate)th send
 
     while(running) {
-        //Set to always start with the highest priority queue, and after each
-        //publish to break out of the loop. This gaurantees that the highest
-        //priority queue with items is processed first. If the highest priority
-        //queue is empty it just iterates to the next priority
-        //queue and so forth
         auto now {millis()};
-        if(now - process_time_ms >= process_interval) {
+        if(now - publish_t[i] >= process_interval) {
             for(auto &queue : _queues) {
                 _mutex.lock();
                 if(!queue.empty()) {
-                    process_time_ms = now;
-                    // Copy the event and pop so the publish is done without holding the mutex
+                    publish_t[i] = now;
+                    i = (i + 1) % burst_rate;
+                    // Copy the event and pop so the publish and wait is done without holding the mutex
                     publish_event_t event {queue.front()};
                     queue.pop();
                     _mutex.unlock();

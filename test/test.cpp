@@ -32,14 +32,19 @@ public:
 
 void TestBackgroundPublish::processOnce()
 {
+    constexpr std::size_t burst_rate {2u}; // allowable burst rate (Hz), Device OS allows up to 4/s
     constexpr system_tick_t process_interval {1000u};
-    static system_tick_t process_time_ms = millis();
+
+    // Publish time of the last (burst_rate) sends in a circular buffer
+    static system_tick_t publish_t[burst_rate] {};
+    static std::size_t i {}; // publish time of the previous (burst_rate)th send
 
     auto now {millis()};
-    if(now - process_time_ms >= process_interval) {
+    if(now - publish_t[i] >= process_interval) {
         for(auto &queue : _queues) {
             if(!queue.empty()) {
-                process_time_ms = now;
+                publish_t[i] = now;
+                i = (i + 1) % burst_rate;
                 // Copy the event and pop so the publish is done without holding the mutex
                 publish_event_t event {queue.front()};
                 queue.pop();
@@ -53,10 +58,7 @@ void TestBackgroundPublish::processOnce()
 TEST_CASE("Test Background Publish") {
     TestBackgroundPublish publisher;
 
-    publisher.init();
-
-    publisher.processOnce(); //run once at the top to establish
-    //a start time for the processOnce
+    publisher.start();
 
     for(int i = 0; i < 8; i++) {
         publisher.publish("TEST_PUB_HIGH",
@@ -71,37 +73,48 @@ TEST_CASE("Test Background Publish") {
                         2, 
                         priority_high_cb ) == false);
 
-    //CANCELLED, run cleanup()
+    // CANCELLED, run cleanup()
     high_cb_counter = 0;
-    Particle.state_output.err = particle::Error::UNKNOWN;
+    low_cb_counter = 0;
+    Particle.state_output.err = particle::Error::NONE;
     Particle.state_output.isDoneReturn = true;
 
     publisher.cleanup();
     REQUIRE(high_cb_counter == 8);
     REQUIRE(status_returned == particle::Error::CANCELLED);
+    high_cb_counter = 0;
     status_returned = particle::Error::UNKNOWN;
 
-    //FAIL, Not enough levels/queues
+    // FAIL, Not enough levels/queues
     REQUIRE(publisher.publish("TEST_PUB_HIGH",
                         str.c_str(), 
                         PRIVATE,
                         2, 
                         priority_high_cb ) == false);
     
-    //PASS, enough levels/queues
+    // PASS, enough levels/queues
     REQUIRE(publisher.publish("TEST_PUB_HIGH",
                         str.c_str(), 
                         PRIVATE,
-                        1, 
-                        priority_high_cb ) == true);
-    System.inc(1000); //increase the tick by one second to allow processOnce to process
-    publisher.processOnce(); //run to clear off the queues
+                        1,
+                        priority_low_cb ) == true);
+    REQUIRE(publisher.publish("TEST_PUB_HIGH",
+                        str.c_str(),
+                        PRIVATE,
+                        1,
+                        priority_low_cb ) == true);
+    System.inc(1000); // increase the tick by one second to allow processOnce to process
+    // burst process two messages at t = 1000
+    publisher.processOnce();
+    publisher.processOnce();
+    REQUIRE(high_cb_counter == 0);
+    REQUIRE(low_cb_counter == 2);
+    REQUIRE(status_returned == particle::Error::NONE);
 
-    //Fail, not enough time passed between processing publishes
-    //Then PASS once once time has passed.
+    // Fail, not enough time passed between processing publishes
+    // Then PASS once once time has passed.
     high_cb_counter = 0;
     low_cb_counter = 0;
-    Particle.state_output.err = particle::Error::NONE;
     REQUIRE(publisher.publish("TEST_PUB_HIGH",
                         str.c_str(), 
                         PRIVATE,
@@ -111,7 +124,6 @@ TEST_CASE("Test Background Publish") {
     publisher.processOnce(); //run to clear off the queues
     REQUIRE(high_cb_counter == 0);
     REQUIRE(low_cb_counter == 0);
-    REQUIRE(status_returned == particle::Error::UNKNOWN);
 
     System.inc(500); //increase the tick by one second to allow processOnce to process
     publisher.processOnce(); //run to clear off the queues
@@ -120,7 +132,7 @@ TEST_CASE("Test Background Publish") {
     REQUIRE(status_returned == particle::Error::NONE);
     status_returned = particle::Error::UNKNOWN;
 
-    //LIMIT_EXCEEDED, run processOnce and fail on is.Succeeded()
+    // LIMIT_EXCEEDED, run processOnce and fail on is.Succeeded()
     high_cb_counter = 0;
     low_cb_counter = 0;
     status_returned = particle::Error::UNKNOWN;
@@ -235,27 +247,22 @@ TEST_CASE("Test Background Publish") {
     REQUIRE(status_returned == particle::Error::NONE);
     status_returned = particle::Error::UNKNOWN; //clear out to something
 
-    Particle.state_output.err = particle::Error::LIMIT_EXCEEDED;
     System.inc(1000); //increase the tick by one second to allow processOnce to process
     publisher.processOnce();
     REQUIRE(low_cb_counter == 1);
     REQUIRE(high_cb_counter == 3);
-    REQUIRE(status_returned == particle::Error::LIMIT_EXCEEDED);
+    REQUIRE(status_returned == particle::Error::NONE);
     status_returned = particle::Error::UNKNOWN; //clear out to something
 
     System.inc(1000); //increase the tick by one second to allow processOnce to process
     publisher.processOnce();
     REQUIRE(low_cb_counter == 2);
     REQUIRE(high_cb_counter == 3);
-    REQUIRE(status_returned == particle::Error::LIMIT_EXCEEDED);
+    REQUIRE(status_returned == particle::Error::NONE);
     status_returned = particle::Error::UNKNOWN;
 
     publisher.processOnce();
-    REQUIRE(status_returned == particle::Error::UNKNOWN); // not enough delay to process
-
-    System.inc(1000); //increase the tick by one second to allow processOnce to process
-    publisher.processOnce();
-    REQUIRE(status_returned == particle::Error::LIMIT_EXCEEDED);
+    REQUIRE(status_returned == particle::Error::NONE);  // burst send
     REQUIRE(low_cb_counter == 3);
     REQUIRE(high_cb_counter == 3);
 }

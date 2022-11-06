@@ -246,9 +246,6 @@ void BackgroundPublish<NumQueues>::thread() {
 
         delay(1); // force yield to processor
     }
-
-    // Exit thread
-    os_thread_exit(nullptr);
 }
 
 template<std::size_t NumQueues>
@@ -264,16 +261,6 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
         return false;
     }
 
-    publish_event_t event_details{};
-    event_details.event_flags = flags;
-    event_details.completed_cb = cb;
-    event_details.event_context = context;
-
-    std::strncpy(event_details.event_name, name, sizeof(event_details.event_name));
-    event_details.event_name[sizeof(event_details.event_name) - 1] = '\0';
-    std::strncpy(event_details.event_data, data, sizeof(event_details.event_data));
-    event_details.event_data[sizeof(event_details.event_data) - 1] = '\0';
-
     if (priority >= NumQueues) {
         logger.error("priority %d exceeds number of queues %d", priority, NumQueues);
         return false;
@@ -285,7 +272,15 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
         logger.error("queue at priority %d is full");
         return false;
     }
-    _queues[priority].push(event_details);
+    _queues[priority].emplace();
+    auto &event {_queues[priority].back()};
+    event.event_flags = flags;
+    event.completed_cb = cb;
+    event.event_context = context;
+    std::strncpy(event.event_name, name, sizeof(event.event_name));
+    event.event_name[sizeof(event.event_name) - 1] = '\0';
+    std::strncpy(event.event_data, data, sizeof(event.event_data));
+    event.event_data[sizeof(event.event_data) - 1] = '\0';
 
     return true;
 }

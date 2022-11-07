@@ -279,8 +279,12 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
     event.event_context = context;
     std::strncpy(event.event_name, name, sizeof(event.event_name));
     event.event_name[sizeof(event.event_name) - 1] = '\0';
-    std::strncpy(event.event_data, data, sizeof(event.event_data));
-    event.event_data[sizeof(event.event_data) - 1] = '\0';
+    if (data != nullptr) {
+        std::strncpy(event.event_data, data, sizeof(event.event_data));
+        event.event_data[sizeof(event.event_data) - 1] = '\0';
+    } else {
+        event.event_data[0] = '\0';
+    }
 
     return true;
 }

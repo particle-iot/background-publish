@@ -27,8 +27,13 @@
 
 using publish_completed_cb_t = std::function<void(particle::Error status,
     const char *event_name,
+    const char *event_data)>;
+
+template<typename Context>
+using publish_completed_cb_t_with_context = std::function<void(particle::Error status,
+    const char *event_name,
     const char *event_data,
-    const void *event_context)>;
+    Context context)>;
 
 template<std::size_t NumQueues = 2u>
 class BackgroundPublish {
@@ -72,7 +77,6 @@ public:
      * @param[in] flags PublishFlags type for the request
      * @param[in] priority priority of message. Lowest is highest priority, zero indexed
      * @param[in] cb callback on publish success or failure
-     * @param[in] context could be a pointer to class (*this)
      *
      * @return TRUE if request accepted, FALSE if not
      */
@@ -80,8 +84,76 @@ public:
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 publish_completed_cb_t cb = nullptr,
-                 const void *context = nullptr);
+                 publish_completed_cb_t cb = nullptr);
+
+    /**
+     * @brief Wrapper class for callbacks that are for non-static functions
+     * Request a publish message to the cloud
+     *
+     * @details Puts the event details for the request in the corresponding
+     * queue depending on what priority level the message is set to. Number
+     * of priority levels is determined by the NUM_OF_QUEUES macros. The lower
+     * the priority level the higher the priority of the message. The level is
+     * used to access the _queues vector as an index
+     *
+     * @param[in] name of the event requested
+     * @param[in] data pointer to data to send
+     * @param[in] flags PublishFlags type for the request
+     * @param[in] priority priority of message. Lowest is highest priority, zero indexed
+     * @param[in] cb callback on publish success or failure
+     * @param[in] instance pointer to instance of the class the cb belongs to
+     *
+     * @return TRUE if request accepted, FALSE if not
+     */
+    template<typename T>
+    bool publish(const char* name,
+                 const char* data = nullptr,
+                 PublishFlags flags = PRIVATE,
+                 std::size_t priority = 0u,
+                 void (T::*cb)(particle::Error status, const char *, const char *) = nullptr,
+                 T* instance = nullptr)
+    {
+        return publish(name,
+                       data,
+                       flags,
+                       priority,
+                       std::bind(cb, instance, std::placeholders::_1,
+                                 std::placeholders::_2, std::placeholders::_3));
+    }
+
+    /**
+     * @brief Wrapper class for callbacks that have a context parameter
+     *
+     * @details Puts the event details for the request in the corresponding
+     * queue depending on what priority level the message is set to. Number
+     * of priority levels is determined by the NUM_OF_QUEUES macros. The lower
+     * the priority level the higher the priority of the message. The level is
+     * used to access the _queues vector as an index
+     *
+     * @param[in] name of the event requested
+     * @param[in] data pointer to data to send
+     * @param[in] flags PublishFlags type for the request
+     * @param[in] priority priority of message. Lowest is highest priority, zero indexed
+     * @param[in] cb callback on publish success or failure
+     * @param[in] context could be a pointer to class (*this)
+     *
+     * @return TRUE if request accepted, FALSE if not
+     */
+    template<typename Context>
+    bool publish(const char* name,
+                 const char* data = nullptr,
+                 PublishFlags flags = PRIVATE,
+                 std::size_t priority = 0u,
+                 publish_completed_cb_t_with_context<Context> cb = nullptr,
+                 Context context = nullptr)
+    {
+        return publish(name,
+                       data,
+                       flags,
+                       priority,
+                       std::bind(cb, std::placeholders::_1,
+                                 std::placeholders::_2, std::placeholders::_3, context));
+    }
 
     /**
      * @brief Wrapper class for callbacks that are for non-static functions
@@ -103,22 +175,21 @@ public:
      *
      * @return TRUE if request accepted, FALSE if not
      */
-    template<typename T>
+    template<typename T, typename Context>
     bool publish(const char* name,
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 void (T::*cb)(particle::Error status, const char *, const char *, const void *) = nullptr,
+                 void (T::*cb)(particle::Error status, const char *, const char *, Context) = nullptr,
                  T* instance = nullptr,
-                 const void* context = nullptr)
+                 Context context = nullptr)
     {
         return publish(name,
                        data,
                        flags,
                        priority,
                        std::bind(cb, instance, std::placeholders::_1,
-                                 std::placeholders::_2, std::placeholders::_3, std::placeholders::_4),
-                       context);
+                                 std::placeholders::_2, std::placeholders::_3, context));
     }
 
     /**
@@ -142,7 +213,6 @@ protected:
     struct publish_event_t {
         PublishFlags event_flags;
         publish_completed_cb_t completed_cb;
-        const void *event_context;
         char event_name[particle::protocol::MAX_EVENT_NAME_LENGTH + 1];
         char event_data[particle::protocol::MAX_EVENT_DATA_LENGTH + 1];
     };
@@ -205,8 +275,7 @@ particle::Error BackgroundPublish<NumQueues>::process_publish(const publish_even
     if(event.completed_cb != nullptr) {
         event.completed_cb(error,
                            event.event_name,
-                           event.event_data,
-                           event.event_context);
+                           event.event_data);
     } else {
         if (error != particle::Error::NONE) {
             // log error if no callback is used
@@ -253,8 +322,7 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
                                            const char *data,
                                            PublishFlags flags,
                                            std::size_t priority,
-                                           publish_completed_cb_t cb,
-                                           const void *context)
+                                           publish_completed_cb_t cb)
 {
     if (!running) {
         logger.error("publisher not initialized");
@@ -276,7 +344,6 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
     auto &event {_queues[priority].back()};
     event.event_flags = flags;
     event.completed_cb = cb;
-    event.event_context = context;
     std::strncpy(event.event_name, name, sizeof(event.event_name));
     event.event_name[sizeof(event.event_name) - 1] = '\0';
     if (data != nullptr) {
@@ -300,8 +367,7 @@ void BackgroundPublish<NumQueues>::cleanup()
             if(event.completed_cb != nullptr) {
                 event.completed_cb(particle::Error::CANCELLED,
                             event.event_name,
-                            event.event_data,
-                            event.event_context);
+                            event.event_data);
             }
             queue.pop();
         }

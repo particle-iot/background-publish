@@ -41,7 +41,7 @@ public:
      * has a priority level determined by its index in the _queues vector. The
      * lower the index, the higher the priority
      */
-    BackgroundPublish(std::size_t max_entries = 8u) : running {false}, maxEntries {max_entries}, _thread()  {}
+    BackgroundPublish(std::size_t max_entries = 8u) : running {false}, _thread(), maxEntries {max_entries}  {}
 
     /**
      * @brief Start the publisher
@@ -269,7 +269,7 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
     std::lock_guard<RecursiveMutex> lock(_mutex);
 
     if(_queues[priority].size() >= maxEntries) {
-        logger.error("queue at priority %d is full");
+        logger.error("queue at priority %d is full", priority);
         return false;
     }
     _queues[priority].emplace();

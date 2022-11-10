@@ -198,7 +198,7 @@ particle::Error BackgroundPublish<NumQueues>::process_publish(const publish_even
 
     // Can't use promise.wait() outside of the application thread
     while(!promise.isDone()) {
-        delay(1); // yield to other threads
+        delay(2); // yield to other threads
     }
     auto error {promise.error()};
 
@@ -244,7 +244,7 @@ void BackgroundPublish<NumQueues>::thread() {
             }
         }
 
-        delay(1); // force yield to processor
+        delay(2); // force yield to processor
     }
 }
 

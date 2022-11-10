@@ -66,3 +66,7 @@ Having problems or have awesome suggestions? Connect with us [here.](https://com
 
 #### 1.0.0
 * Initial version
+
+#### 1.1.0
+* Allow burst sends without a fixed processing interval
+* Numerous fixes and cleanup

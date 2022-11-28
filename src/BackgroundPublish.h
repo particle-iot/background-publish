@@ -326,11 +326,13 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
 {
     if (!running) {
         logger.error("publisher not initialized");
+        cb(particle::Error::INVALID_STATE, name, data);
         return false;
     }
 
     if (priority >= NumQueues) {
         logger.error("priority %d exceeds number of queues %d", priority, NumQueues);
+        cb(particle::Error::INVALID_ARGUMENT, name, data);
         return false;
     }
 
@@ -338,6 +340,7 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
 
     if(_queues[priority].size() >= maxEntries) {
         logger.error("queue at priority %d is full", priority);
+        cb(particle::Error::BUSY, name, data);
         return false;
     }
     _queues[priority].emplace();

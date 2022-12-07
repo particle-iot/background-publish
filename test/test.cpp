@@ -105,6 +105,8 @@ TEST_CASE("Test Background Publish") {
                         PRIVATE,
                         2, 
                         priority_high_cb ) == false);
+    REQUIRE(high_cb_counter == 1);
+    REQUIRE(status_returned == particle::Error::INVALID_ARGUMENT);
     
     // PASS, enough levels/queues
     REQUIRE(publisher.publish("TEST_PUB_HIGH",
@@ -121,7 +123,6 @@ TEST_CASE("Test Background Publish") {
     // burst process two messages at t = 1000
     publisher.processOnce();
     publisher.processOnce();
-    REQUIRE(high_cb_counter == 0);
     REQUIRE(low_cb_counter == 2);
     REQUIRE(status_returned == particle::Error::NONE);
 

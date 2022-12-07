@@ -25,19 +25,25 @@
 
 #include "Particle.h"
 
-using publish_completed_cb_t = std::function<void(particle::Error status,
-    const char *event_name,
-    const char *event_data)>;
-
-template<typename Context>
-using publish_completed_cb_t_with_context = std::function<void(particle::Error status,
-    const char *event_name,
-    const char *event_data,
-    Context context)>;
-
 template<std::size_t NumQueues = 2u>
 class BackgroundPublish {
 public:
+    using publish_callback = std::function<void(particle::Error status,
+        const char *event_name,
+        const char *event_data)>;
+
+    template<typename Context>
+    using publish_callback_with_context = std::function<void(particle::Error status,
+        const char *event_name,
+        const char *event_data,
+        Context context)>;
+
+    template<typename T>
+    using publish_callback_ptmf = void (T::*)(particle::Error, const char *event_name, const char *event_data);
+
+    template<typename T, typename Context>
+    using publish_callback_ptmf_with_context = void (T::*)(particle::Error, const char *event_name, const char *event_data, Context);
+
     /**
      * @brief Creates the queues needed on construction, and stores them in the
      * _queues vector
@@ -84,7 +90,7 @@ public:
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 publish_completed_cb_t cb = nullptr);
+                 publish_callback cb = nullptr);
 
     /**
      * @brief Wrapper class for callbacks that are for non-static functions
@@ -110,7 +116,7 @@ public:
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 void (T::*cb)(particle::Error status, const char *, const char *) = nullptr,
+                 publish_callback_ptmf<T> cb = nullptr,
                  T* instance = nullptr)
     {
         return publish(name,
@@ -144,7 +150,7 @@ public:
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 publish_completed_cb_t_with_context<Context> cb = nullptr,
+                 publish_callback_with_context<Context> cb = nullptr,
                  Context context = nullptr)
     {
         return publish(name,
@@ -180,7 +186,7 @@ public:
                  const char* data = nullptr,
                  PublishFlags flags = PRIVATE,
                  std::size_t priority = 0u,
-                 void (T::*cb)(particle::Error status, const char *, const char *, Context) = nullptr,
+                 publish_callback_ptmf_with_context<T, Context> cb = nullptr,
                  T* instance = nullptr,
                  Context context = nullptr)
     {
@@ -212,7 +218,7 @@ protected:
     // Define these as protected so the test case can access these to simulate the processing thread
     struct publish_event_t {
         PublishFlags event_flags;
-        publish_completed_cb_t completed_cb;
+        publish_callback completed_cb;
         char event_name[particle::protocol::MAX_EVENT_NAME_LENGTH + 1];
         char event_data[particle::protocol::MAX_EVENT_DATA_LENGTH + 1];
     };
@@ -322,7 +328,7 @@ bool BackgroundPublish<NumQueues>::publish(const char *name,
                                            const char *data,
                                            PublishFlags flags,
                                            std::size_t priority,
-                                           publish_completed_cb_t cb)
+                                           publish_callback cb)
 {
     if (!running) {
         logger.error("publisher not initialized");

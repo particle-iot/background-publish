@@ -179,6 +179,9 @@ public:
     enum Type {
         NONE = 0,
         UNKNOWN,
+        INVALID_STATE,
+        INVALID_ARGUMENT,
+        BUSY,
         LIMIT_EXCEEDED,
         CANCELLED,
     };

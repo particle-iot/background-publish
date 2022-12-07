@@ -11,16 +11,30 @@ particle::Error status_returned;
 
 void priority_high_cb(particle::Error status,
     const char *event_name,
-    const char *event_data,
-    const void *event_context) {
+    const char *event_data) {
     status_returned = status;
     high_cb_counter++;
 }
 
 void priority_low_cb(particle::Error status,
     const char *event_name,
+    const char *event_data) {
+    status_returned = status;
+    low_cb_counter++;
+}
+
+void priority_high_cb2(particle::Error status,
+    const char *event_name,
     const char *event_data,
-    const void *event_context) {
+    const int context) {
+    status_returned = status;
+    high_cb_counter++;
+}
+
+void priority_low_cb2(particle::Error status,
+    const char *event_name,
+    const char *event_data,
+    const int context) {
     status_returned = status;
     low_cb_counter++;
 }
@@ -61,17 +75,17 @@ TEST_CASE("Test Background Publish") {
     publisher.start();
 
     for(int i = 0; i < 8; i++) {
-        publisher.publish("TEST_PUB_HIGH",
+        publisher.publish<int>("TEST_PUB_HIGH",
                             str.c_str(),
                             PRIVATE,
                             1,
-                            priority_high_cb);
+                            priority_high_cb2, 1);
     }
-    REQUIRE(publisher.publish("TEST_PUB_HIGH",
+    REQUIRE(publisher.publish<int>("TEST_PUB_HIGH",
                         str.c_str(), 
                         PRIVATE,
                         2, 
-                        priority_high_cb ) == false);
+                        priority_high_cb2, 1) == false);
 
     // CANCELLED, run cleanup()
     high_cb_counter = 0;
@@ -91,6 +105,8 @@ TEST_CASE("Test Background Publish") {
                         PRIVATE,
                         2, 
                         priority_high_cb ) == false);
+    REQUIRE(high_cb_counter == 1);
+    REQUIRE(status_returned == particle::Error::INVALID_ARGUMENT);
     
     // PASS, enough levels/queues
     REQUIRE(publisher.publish("TEST_PUB_HIGH",
@@ -107,7 +123,6 @@ TEST_CASE("Test Background Publish") {
     // burst process two messages at t = 1000
     publisher.processOnce();
     publisher.processOnce();
-    REQUIRE(high_cb_counter == 0);
     REQUIRE(low_cb_counter == 2);
     REQUIRE(status_returned == particle::Error::NONE);
 
